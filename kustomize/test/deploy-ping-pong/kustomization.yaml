@@ -1,0 +1,28 @@
+# Deploy-ping-pong deploys the ping-pong application and its
+# dependencies to the "ping-pong" namespace. It also creates:
+#
+# * A Job to create JournalSpecs for ping-pong volleys.
+# * A Job to create ShardSpecs for each ping-pong journal.
+bases:
+  - ../../core/bases/broker
+  - ../../core/bases/etcd
+  - ../../core/bases/minio
+  - ../../core/test/bases/environment
+  - ../../bases/ping-pong
+resources:
+  - namespace.yaml
+  - apply-shard-specs.yaml
+  - apply-journal-specs.yaml
+
+namespace: ping-pong
+
+commonLabels:
+  app.kubernetes.io/instance: my-release-name
+
+configMapGenerator:
+  - name: shard-specs
+    files:
+      - shard_specs.yaml
+  - name: journal-specs
+    files:
+      - journal_specs.yaml

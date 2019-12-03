@@ -1,0 +1,35 @@
+name: ping-pong/
+replication: 2
+fragment:
+  length: 268435456 # 256MB.
+  stores:
+    - s3://examples/fragments/?profile=minio&endpoint=http%3A%2F%2Fminio%3A9000
+  refresh_interval: 3m0s
+  compression_codec: GZIP
+children:
+  # Recovery logs of ping-pong shards.
+  - name: ping-pong/recovery-logs/
+    labels:
+      - name:  content-type
+        value: application/x-gazette-recoverylog
+    children:
+      - name: ping-pong/recovery-logs/shard-000
+      - name: ping-pong/recovery-logs/shard-001
+      - name: ping-pong/recovery-logs/shard-002
+      - name: ping-pong/recovery-logs/shard-003
+
+  # Journal partitions holding ping-pong volleys.
+  - name: ping-pong/volleys/
+    labels:
+      - name:  app.gazette.dev/message-type
+        value: ping_pong.Volley
+      - name:  content-type
+        value: application/x-ndjson
+    fragment:
+      path_postfix_template: date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}
+    children:
+      - name: ping-pong/volleys/part=000
+      - name: ping-pong/volleys/part=001
+      - name: ping-pong/volleys/part=002
+      - name: ping-pong/volleys/part=003
+

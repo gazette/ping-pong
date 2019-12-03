@@ -1,0 +1,11 @@
+# ping-pong deploys a Deployment and Service for the ping-pong application.
+bases:
+  - ../../core/bases/consumer
+patchesStrategicMerge:
+  - patches.yaml
+
+nameSuffix: -ping-pong
+
+images:
+  - name:    consumer/image
+    newName: localhost:32000/ping-pong

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"math/rand"
 	"time"
 
 	"github.com/pkg/errors"
@@ -17,85 +20,43 @@ import (
 type config struct {
 	runconsumer.BaseConfig
 
-	// Fizzle demonstrates how application-specific parameters can be configured
-	// by runconsumer.Main, as either process flags or from the environment.
-	Fizzle struct {
-		Flopp int    `long:"flopp" default:"42" description:"Flippity flopp"`
-		Blarg string `long:"blarg" default:"klarble" description:"Blargle"`
-	} `group:"Fizzle" namespace:"fizzle" env-namespace:"FIZZLE"`
-}
-
-const (
-	// FirstServeLabel indicates we're responsible for the first game serve.
-	FirstServeLabel = "first-serve"
-	// VolleyToLabel indicates to whom return volleys are directed.
-	VolleyToLabel = "volley-to"
-)
-
-// Volley is a Message representing a volley between game participants.
-type Volley struct {
-	UUID     message.UUID
-	From, To string
-	Round    int
+	// PingPong application flags.
+	PingPong struct {
+		Players int           `long:"players" default:"100" description:"Number of ping-pong players" env:"PLAYERS"`
+		Period  time.Duration `long:"period" default:"1s" description:"Average period between game starts" env:"PERIOD"`
+	} `group:"ping-pong" namespace:"ping-pong" env-namespace:"PING_PONG"`
 }
 
 // Implementation of the message.Message interface.
-func (v *Volley) SetUUID(uuid message.UUID)                     { v.UUID = uuid }
-func (v *Volley) GetUUID() message.UUID                         { return v.UUID }
-func (v *Volley) NewAcknowledgement(pb.Journal) message.Message { return new(Volley) }
+func (c *Volley) GetUUID() (uuid message.UUID)                  { copy(uuid[:], c.Uuid); return }
+func (c *Volley) SetUUID(uuid message.UUID)                     { c.Uuid = uuid[:] }
+func (c *Volley) NewAcknowledgement(pb.Journal) message.Message { return new(Volley) }
 
 // App implements our runconsumer.Application.
 type App struct {
+	cfg     config
 	mapping message.MappingFunc
-	pub     *message.Publisher
 }
 
-// state which is represented by each shard's consumer.Store.
-type state struct {
-	ReceivedVolleys int
-}
-
-func (p *App) NewStore(shard consumer.Shard, rec *recoverylog.Recorder) (store consumer.Store, err error) {
-	var state = new(state)
-
-	if store, err = consumer.NewJSONFileStore(rec, state); err != nil {
-		return nil, err
-	}
-
-	// Is this the first round, and we're responsible for first serve?
-	if shard.Spec().LabelSet.ValuesOf(FirstServeLabel) != nil && state.ReceivedVolleys == 0 {
-		var id = shard.Spec().Id.String()
-
-		if _, err = p.pub.PublishCommitted(p.mapping, &Volley{
-			From: id,
-			To:   id,
-		}); err != nil {
-			return nil, err
-		}
-	}
-	return store, nil
+func (p *App) NewStore(_ consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
+	return consumer.NewJSONFileStore(rec, new(struct{}))
 }
 
 func (p *App) NewMessage(*pb.JournalSpec) (message.Message, error) {
 	return new(Volley), nil
 }
 
-func (p *App) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, pub *message.Publisher) error {
-	var (
-		volley = env.Message.(*Volley)
-		id     = shard.Spec().Id.String()
-		state  = store.(*consumer.JSONFileStore).State.(*state)
-	)
+func (p *App) ConsumeMessage(_ consumer.Shard, _ consumer.Store, env message.Envelope, pub *message.Publisher) error {
+	var recv = env.Message.(*Volley)
 
-	if volley.To != id {
-		return nil // Not our ball.
+	if message.GetFlags(recv.GetUUID()) == message.Flag_ACK_TXN {
+		return nil // Ignore txn acknowledgement messages.
 	}
-	state.ReceivedVolleys++
-
 	var _, err = pub.PublishUncommitted(p.mapping, &Volley{
-		From:  id,
-		To:    shard.Spec().LabelSet.ValueOf(VolleyToLabel),
-		Round: state.ReceivedVolleys,
+		GameId: recv.GameId,
+		From:   recv.To,
+		To:     int32(rand.Int() % p.cfg.PingPong.Players),
+		Round:  recv.Round + 1,
 	})
 	return err
 }
@@ -107,11 +68,15 @@ func (p *App) FinalizeTxn(consumer.Shard, consumer.Store, *message.Publisher) er
 func (p *App) NewConfig() runconsumer.Config { return new(config) }
 
 func (p *App) InitApplication(args runconsumer.InitArgs) error {
-	if args.Config.(*config).Fizzle.Flopp != 42 {
-		return errors.New("expected 'flopp' to be 42")
+	p.cfg = *args.Config.(*config)
+
+	if p.cfg.PingPong.Players <= 2 {
+		return errors.New("Players must be >= 2")
+	} else if p.cfg.PingPong.Period < 0 {
+		return errors.New("ServePeriod must be >= 0")
 	}
 
-	// Select all journals having message-type=ping_pong.Volley.
+	// Select all journals having message-type "Volley".
 	var partitions, err = client.NewPolledList(args.Context, args.Service.Journals, 30*time.Second,
 		pb.ListRequest{
 			Selector: pb.LabelSelector{
@@ -121,9 +86,37 @@ func (p *App) InitApplication(args runconsumer.InitArgs) error {
 	if err != nil {
 		return err
 	}
-	p.mapping = message.RandomMapping(partitions.List)
+	// Map Volley messages to partitions using a modulo-hash of the "To" field.
+	p.mapping = message.ModuloMapping(func(m message.Mappable, w io.Writer) {
+		_, _ = w.Write([]byte(fmt.Sprintf("%x", m.(*Volley).To)))
+	}, partitions.List)
 
+	if p.cfg.PingPong.Period != 0 {
+		var as = client.NewAppendService(args.Context, args.Service.Journals)
+		go startGames(p.mapping, message.NewPublisher(as, nil), p.cfg)
+	}
 	return nil
+}
+
+func startOneGame(mapping message.MappingFunc, pub *message.Publisher, cfg config) {
+	if _, err := pub.PublishCommitted(mapping, &Volley{
+		GameId: int32(rand.Int()),
+		From:   -1,
+		To:     int32(rand.Int() % cfg.PingPong.Players),
+		Round:  0,
+	}); err != nil {
+		panic(err.Error())
+	}
+}
+
+func startGames(mapping message.MappingFunc, pub *message.Publisher, cfg config) {
+	for {
+		startOneGame(mapping, pub, cfg)
+
+		var period = float64(cfg.PingPong.Period)
+		var delay = rand.NormFloat64()*period*0.3 + period
+		time.Sleep(time.Duration(delay))
+	}
 }
 
 func main() { runconsumer.Main(new(App)) }

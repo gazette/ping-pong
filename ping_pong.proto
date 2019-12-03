@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package ping_pong;
+
+import "broker/protocol/protocol.proto";
+import "ptypes/duration/duration.proto";
+import "ptypes/empty/empty.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "main";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+// Volley is a protobuf message representing a volley between game participants.
+message Volley {
+    bytes uuid = 1;    // Gazette assigned message UUID.
+    int32 game_id = 2; // Ping-pong game which this volley extends.
+    int32 from = 3;    // Player which sent the volley.
+    int32 to = 4;      // Player receiving the volley.
+    int32 round = 5;   // Volley number of this game.
+}
+
+// SomeService is not used, and is here only to demonstrate the generation
+// of gRPC service defintions using Gazette's Make build system.
+service SomeService {
+	// Foo the bar.
+  rpc Foo(google.protobuf.Duration) returns (google.protobuf.Empty);
+}
