@@ -8,16 +8,17 @@ Repository Layout
 -------------------
 
 - ``ping_pong.go`` implements the complete application, and ``ping_pong_test.go``
- provides (very basic) end-to-end test coverage.
+  provides (very basic) end-to-end test coverage.
 - ``ping_pong.proto`` implements a ``Volley`` protobuf message type. Use of
- protobuf in this example is overkill -- it could just as easily be a Go struct --
- but is included to demonstrate building applications with Protobuf support.
+  protobuf in this example is overkill -- it could just as easily be a Go struct --
+  but is included to demonstrate building applications with Protobuf support.
+  ``ping_pong.pb.go`` is checked-in, associated generated code.
 - ``Makefile`` provides an opinionated, complete build system for the application.
- It leverages Gazette's build infrastructure to include support for RocksDB,
- a hermetic Docker-based build environment, targets for ``go install``
- and ``go test``, and targets for packaging production-ready release images.
+  It leverages Gazette's build infrastructure to include support for RocksDB,
+  a hermetic Docker-based build environment, targets for ``go install``
+  and ``go test``, and targets for packaging production-ready release images.
 - ``kustomize`` provides Kubernetes manifests for deploying the application,
- including manifests for end-to-end testing.
+  including manifests for end-to-end testing.
 
 Makefile
 ---------
@@ -48,7 +49,7 @@ several useful targets:
 
    Invoke ``protoc`` to regenerate any protobuf messages which have been updated.
 
-   _Then_, invoke ``go install`` with appropriate CGO flags to find and use RocksDB.
+   *Then*, invoke ``go install`` with appropriate CGO flags to find and use RocksDB.
 
 :go-test-fast:
     Invoke ``go test`` to run all tests one time, with appropriate CGO flags for RocksDB.
@@ -82,8 +83,8 @@ several useful targets:
 Kustomize
 -----------
 
-Manifests in this repo re-use base manifests from go.gazette.dev/core,
-which are expected to be available as ``kustomize/core``.
+Manifests in this repo re-use base manifests from ``go.gazette.dev/core``,
+which are expected to be available as ``./kustomize/core``.
 
 As a first step, soft-link the current gazette module path to that directory:
 
@@ -92,6 +93,9 @@ As a first step, soft-link the current gazette module path to that directory:
     $ ln -s $(go list -f '{{ .Dir }}' -m go.gazette.dev/core)/kustomize kustomize/core
 
 You'll need to update this soft-link whenever you change the associated ``go.mod`` module version.
+(There's probably a better way to manage this, but I don't know it off hand).
+
+Manifests of this repo are:
 
 :kustomize/bases/ping-pong:
     Base manifest which kustomizes the ``consumer`` manifest of the Gazette repo to
