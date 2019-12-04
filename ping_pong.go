@@ -27,30 +27,37 @@ type config struct {
 	} `group:"ping-pong" namespace:"ping-pong" env-namespace:"PING_PONG"`
 }
 
-// Implementation of the message.Message interface.
-func (c *Volley) GetUUID() (uuid message.UUID)                  { copy(uuid[:], c.Uuid); return }
-func (c *Volley) SetUUID(uuid message.UUID)                     { c.Uuid = uuid[:] }
+// GetUUID returns the Gazette UUID of a Volley. It implements message.Message.
+func (c *Volley) GetUUID() (uuid message.UUID) { copy(uuid[:], c.Uuid); return }
+
+// SetUUID sets the Gazette UUID of a Volley. It implements message.Message.
+func (c *Volley) SetUUID(uuid message.UUID) { c.Uuid = uuid[:] }
+
+// NewAcknowledgement returns a new Volley. It implements message.Message.
 func (c *Volley) NewAcknowledgement(pb.Journal) message.Message { return new(Volley) }
 
-// App implements our runconsumer.Application.
+// App implements our ping-pong runconsumer.Application.
 type App struct {
 	cfg     config
 	mapping message.MappingFunc
 }
 
+// NewStore returns a JSONFileStore with empty state.
 func (p *App) NewStore(_ consumer.Shard, rec *recoverylog.Recorder) (consumer.Store, error) {
 	return consumer.NewJSONFileStore(rec, new(struct{}))
 }
 
+// NewMessage returns a new Volley.
 func (p *App) NewMessage(*pb.JournalSpec) (message.Message, error) {
 	return new(Volley), nil
 }
 
+// ConsumeMessage receives Volleys, and returns them to a randomly selected player.
 func (p *App) ConsumeMessage(_ consumer.Shard, _ consumer.Store, env message.Envelope, pub *message.Publisher) error {
 	var recv = env.Message.(*Volley)
 
 	if message.GetFlags(recv.GetUUID()) == message.Flag_ACK_TXN {
-		return nil // Ignore txn acknowledgement messages.
+		return nil // Ignore transaction acknowledgement messages.
 	}
 	var _, err = pub.PublishUncommitted(p.mapping, &Volley{
 		GameId: recv.GameId,
@@ -61,12 +68,15 @@ func (p *App) ConsumeMessage(_ consumer.Shard, _ consumer.Store, env message.Env
 	return err
 }
 
+// FinalizeTxn is a no-op, as we have no deferred work to finish before the transaction closes.
 func (p *App) FinalizeTxn(consumer.Shard, consumer.Store, *message.Publisher) error {
 	return nil // No-op.
 }
 
+// NewConfig returns a new config instance.
 func (p *App) NewConfig() runconsumer.Config { return new(config) }
 
+// InitApplication validates configuration and initializes the ping-pong application.
 func (p *App) InitApplication(args runconsumer.InitArgs) error {
 	p.cfg = *args.Config.(*config)
 
