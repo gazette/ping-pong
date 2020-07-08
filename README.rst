@@ -38,10 +38,12 @@ with the release image. Gazette's use of RocksDB also requires compile-time flag
 (notably enabling run-time type information) which are not enabled by the rocksdb
 Debian package.
 
-The ``Makefile`` of this repository determines the local directory holding
-the active ``go.gazette.dev/core`` module from ``go.mod``, and includes Makefiles
-of that repository designed to be re-used by external applications. It provides
-several useful targets:
+The ``Makefile`` of this repository determines the local directory holding the
+active ``go.gazette.dev/core`` module from ``go.mod``, and includes Makefiles of
+that repository designed to be re-used by external applications. **You must
+first run ``go mod download`` before you'll be able to use any of these
+targets**. Just about any other go command will work instead, as long as it
+causes the modules to be downloaded. It provides several useful targets:
 
 :go-install:
    Fetch and build RocksDB if required (it's compiled into a ``.build`` subdirectory

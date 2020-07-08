@@ -18,6 +18,12 @@ import (
 	"go.gazette.dev/core/message"
 )
 
+// This function will be invoked automatically by `go test`. It starts up an
+// etcd process that will be used by the tests.
+func TestMain(m *testing.M) {
+	etcdtest.TestMainWithEtcd(m)
+}
+
 func TestPingPong(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
